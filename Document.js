@@ -284,7 +284,7 @@ Document.prototype.delName = function( prop ){
 };
 
 // parent
-Document.prototype.addParent = function( field, name, id, abbr ){
+Document.prototype.addParent = function( field, name, id, abbr, inFront ){
 
   var add = function( prop, value ){
 
@@ -293,10 +293,20 @@ Document.prototype.addParent = function( field, name, id, abbr ){
       this.parent[ prop ] = [];
     }
 
+
     // add value to array if not already present
     if( -1 === this.parent[prop].indexOf(value) ){
-      this.parent[prop].push(value);
-    }
+      if( inFront ) {
+        this.parent[prop].unshift( value );
+      } else {
+        this.parent[prop].push(value);
+      }
+    } else {
+       if( inFront ) {
+	 this.parent[prop].splice( this.parent[prop].indexOf(value), 1 );
+	 this.parent[prop].unshift( value );
+       }
+    } 
   }.bind(this);
 
   var addValidate = function( prop, value ){
