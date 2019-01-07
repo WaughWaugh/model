@@ -284,10 +284,17 @@ Document.prototype.delName = function( prop ){
 };
 
 // parent
-Document.prototype.addParent = function( field, name, id, abbr, inFront ){
+Document.prototype.addParent = function( field, name, id, abbr, positionParams ){
 
   var add = function( prop, value ){
 
+    var inFront = false, beforeEnd = false;
+
+    if( positionParams != null ) {
+	inFront = positionParams.inFront;
+	beforeEnd = positionParams.beforeEnd;
+    }
+    
     // create new parent array if required
     if( !this.parent.hasOwnProperty( prop ) ){
       this.parent[ prop ] = [];
@@ -298,7 +305,15 @@ Document.prototype.addParent = function( field, name, id, abbr, inFront ){
     if( -1 === this.parent[prop].indexOf(value) ){
       if( inFront ) {
         this.parent[prop].unshift( value );
+      } else if( beforeEnd ) {
+
+        if ( this.parent[prop].length == 3 ) {
+	   this.parent[prop].splice( this.parent[prop].length - 1, 0, value );
+        } else {
+	   this.parent[prop].push( value );
+        }
       } else {
+
         this.parent[prop].push(value);
       }
     } else {
