@@ -1,10 +1,10 @@
-var config = require('pelias-config').generate();
+const config = require('pelias-config').generate();
+const validate = require('./util/valid');
+const transform = require('./util/transform');
+const _ = require('lodash');
+const codec = require('./codec');
 
-var validate = require('./util/valid');
-var transform = require('./util/transform');
-var _ = require('lodash');
-
-const addressFields = ['name', 'number', 'unit', 'street', 'zip'];
+const addressFields = ['name', 'number', 'unit', 'street', 'cross_street', 'zip'];
 
 const parentFields = [
   'continent',
@@ -32,9 +32,16 @@ function Document( source, layer, source_id ){
   this.address_parts = {};
   this.center_point = {};
   this.category = [];
+  this.addendum = {};
 
   // create a non-enumerable property for metadata
   Object.defineProperty( this, '_meta', { writable: true, value: {} });
+
+  // create a non-enumerable property for post-processing scripts
+  Object.defineProperty( this, '_post', { writable: true, value: [] });
+
+  // define default post-processing scripts
+  this.addPostProcessingScript( require('./post/intersections') );
 
   // mandatory properties
   this.setSource( source );
@@ -49,6 +56,26 @@ function Document( source, layer, source_id ){
   this.setType( layer );
 }
 
+// add a post-processing script which is run before generating the ES document
+Document.prototype.addPostProcessingScript = function( fn ){
+  validate.type('function', fn);
+  this._post.push(fn);
+  return this;
+};
+
+// remove a post-processing script
+Document.prototype.removePostProcessingScript = function( fn ){
+  validate.type('function', fn);
+  this._post = this._post.filter(p => p !== fn);
+  return this;
+};
+
+// call all post-processing scripts
+Document.prototype.callPostProcessingScripts = function(){
+  this._post.forEach(function(fn){ fn.call(null, this); }, this);
+  return this;
+};
+
 Document.prototype.toJSON = function(){
   return this;
 };
@@ -57,6 +84,10 @@ Document.prototype.toJSON = function(){
  * Returns an object in exactly the format that Elasticsearch wants for inserts
  */
 Document.prototype.toESDocument = function() {
+
+  // call all post-processing scripts
+  this.callPostProcessingScripts();
+
   var doc = {
     name: this.name,
     phrase: this.phrase,
@@ -70,8 +101,14 @@ Document.prototype.toESDocument = function() {
     bounding_box: this.bounding_box,
     popularity: this.popularity,
     population: this.population,
+    addendum: {},
     polygon: this.shape
   };
+
+  // add encoded addendum namespaces
+  for( var namespace in this.addendum || {} ){
+    doc.addendum[namespace] = codec.encode(this.addendum[namespace]);
+  }
 
   // remove empty properties
   if( !Object.keys( doc.parent || {} ).length ){
@@ -94,6 +131,9 @@ Document.prototype.toESDocument = function() {
   }
   if (!this.popularity) {
     delete doc.popularity;
+  }
+  if( !Object.keys( doc.addendum || {} ).length ){
+    delete doc.addendum;
   }
   if( !Object.keys( doc.polygon || {} ).length ){
     delete doc.polygon;
@@ -215,6 +255,7 @@ Document.prototype.setName = function( prop, value ){
 
   validate.type('string', value);
   validate.truthy(value);
+  validate.regex.nomatch(value, /https?:\/\//);
 
   // must copy name to 'phrase' index
   if( Array.isArray( this.name[ prop ] ) ){
@@ -232,6 +273,7 @@ Document.prototype.setNameAlias = function( prop, value ){
 
   validate.type('string', value);
   validate.truthy(value);
+  validate.regex.nomatch(value, /https?:\/\//);
 
   // is this the first time setting this prop? ensure it's an array
   if( !this.hasName( prop ) ){
@@ -398,6 +440,7 @@ Document.prototype.setAddress = function( prop, value ){
   validate.type('string', value);
   validate.truthy(value);
   validate.property(addressFields, prop);
+  validate.regex.nomatch(value, /https?:\/\//);
 
   if( Array.isArray( this.address_parts[ prop ] ) ){
     this.address_parts[ prop ][ 0 ] = value;
@@ -413,6 +456,7 @@ Document.prototype.setAddressAlias = function( prop, value ){
   validate.type('string', value);
   validate.truthy(value);
   validate.property(addressFields, prop);
+  validate.regex.nomatch(value, /https?:\/\//);
 
   // is this the first time setting this prop? ensure it's an array
   if( !this.hasAddress( prop ) ){
@@ -513,6 +557,33 @@ Document.prototype.removeCategory = function( value ){
   }
 
   return this;
+};
+
+// addendum
+Document.prototype.setAddendum = function( namespace, value ){
+  validate.type('string', namespace);
+  validate.truthy(namespace);
+  validate.type('object', value);
+  if( Object.keys(value).length > 0 ){
+    this.addendum[ namespace ] = value;
+  }
+  return this;
+};
+
+Document.prototype.getAddendum = function( namespace ){
+  return this.addendum[ namespace ];
+};
+
+Document.prototype.hasAddendum = function( namespace ){
+  return this.addendum.hasOwnProperty( namespace );
+};
+
+Document.prototype.delAddendum = function( namespace ){
+  if( this.hasAddendum( namespace ) ){
+    delete this.addendum[ namespace ];
+    return true;
+  }
+  return false;
 };
 
 // centroid

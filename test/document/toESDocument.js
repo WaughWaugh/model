@@ -1,4 +1,5 @@
-var proxyquire = require('proxyquire');
+const proxyquire = require('proxyquire');
+const codec = require('../../codec');
 
 var fakeGeneratedConfig = {
   schema: {
@@ -6,7 +7,7 @@ var fakeGeneratedConfig = {
   }
 };
 
-var fakeConfig = {
+const fakeConfig = {
   generate: function fakeGenerate() {
     return fakeGeneratedConfig;
   }
@@ -41,6 +42,8 @@ module.exports.tests.toESDocument = function(test) {
     doc.setPolygon({ key: 'value' });
     doc.addCategory('category 1');
     doc.addCategory('category 2');
+    doc.setAddendum('wikipedia', { slug: 'HackneyCityFarm' });
+    doc.setAddendum('geonames', { foreignkey: 1 });
 
     var esDoc = doc.toESDocument();
 
@@ -74,7 +77,11 @@ module.exports.tests.toESDocument = function(test) {
         category: [
           'category 1',
           'category 2'
-        ]
+        ],
+        addendum: {
+          wikipedia: codec.encode({ slug: 'HackneyCityFarm' }),
+          geonames: codec.encode({ foreignkey: 1 })
+        }
       }
     };
 
@@ -207,6 +214,23 @@ module.exports.tests.toESDocumentWithCustomConfig = function(test) {
     t.deepEqual(esDoc._index, 'alternateindexname', 'document has correct index');
 
     t.end();
+  });
+};
+
+module.exports.tests.toESDocumentCallsProcessingScripts = function(test) {
+  test('toESDocument must call all post-processing scripts', function(t) {
+    let Document = proxyquire('../../Document', { 'pelias-config': fakeConfig });
+    let doc = new Document('mysource','mylayer','myid');
+    doc._post = []; // remove any default scripts
+    t.plan(3);
+
+    // document pointer passed as first arg to scripts
+    doc.addPostProcessingScript((ref) => t.equal(doc, ref));
+    doc.addPostProcessingScript((ref) => t.equal(doc, ref));
+    doc.addPostProcessingScript((ref) => t.equal(doc, ref));
+
+    // toESDocument() should, in tern, call callPostProcessingScripts()
+    doc.toESDocument();
   });
 };
 
